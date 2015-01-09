@@ -151,8 +151,6 @@ ssize_t websocket_readframe(const void *src, size_t len, struct websocket_frame 
 	ssize_t off = 0;
 	unsigned char tmp[8];
 
-	frame->offset = 0;
-
 	if ((off = websocket_readdata(frame->header, sizeof frame->header, src, off, len)) < 0)
 		return off;
 
@@ -181,13 +179,13 @@ ssize_t websocket_readframe(const void *src, size_t len, struct websocket_frame 
 	return off;
 }
 
-ssize_t websocket_maskdata(void *p, size_t n, struct websocket_frame *frame) {
+ssize_t websocket_maskdata(void *p, size_t n, struct websocket_frame *frame, size_t off) {
 	size_t i;
 
 	if (frame->header[1] & WEBSOCKET_MASK)
 		for (i = 0; i < n; ++i)
 			((unsigned char *) p)[i] =
-				((unsigned char *) p)[i] ^ frame->mask[frame->offset + i & 3];
+				((unsigned char *) p)[i] ^ frame->mask[off + i & 3];
 
 	return n;
 }

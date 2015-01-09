@@ -47,7 +47,6 @@ extern "C" {
 #define WEBSOCKET_PONG (0x0a)
 
 struct websocket_frame {
-	unsigned long long offset;
 	unsigned long long length;
 	unsigned char header[2];
 	unsigned char mask[4];
@@ -59,7 +58,7 @@ ssize_t websocket_writeresponse(void *dst, size_t size, const void *src, size_t 
 ssize_t websocket_writeframe(void *dst, size_t size, struct websocket_frame *frame);
 ssize_t websocket_readframe(const void *src, size_t len, struct websocket_frame *frame);
 
-ssize_t websocket_maskdata(void *p, size_t n, struct websocket_frame *frame);
+ssize_t websocket_maskdata(void *p, size_t n, struct websocket_frame *frame, size_t off);
 ssize_t websocket_readdata(void *dst, size_t len, const void *src, size_t off, size_t size);
 ssize_t websocket_writedata(void *dst, size_t off, size_t size, const void *src, size_t len);
 
