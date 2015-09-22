@@ -30,6 +30,8 @@
 extern "C" {
 #endif
 
+#define WEBSOCKET_NONCESIZE (16)
+
 /* header[0] */
 #define WEBSOCKET_FIN (0x80)
 #define WEBSOCKET_OPCODE (0x0f)
@@ -53,6 +55,12 @@ struct websocket_frame {
 };
 
 ssize_t websocket_readrequest(const void *src, size_t len);
+ssize_t websocket_writerequest(
+	void *dst, size_t size, const unsigned char nonce[static WEBSOCKET_NONCESIZE],
+	const char *uri, const char *fields[], size_t count);
+
+ssize_t websocket_readresponse(
+	const void *src, size_t len, const unsigned char nonce[static WEBSOCKET_NONCESIZE]);
 ssize_t websocket_writeresponse(void *dst, size_t size, const void *src, size_t len);
 
 ssize_t websocket_writeframe(void *dst, size_t size, struct websocket_frame *frame);

@@ -33,10 +33,14 @@
 #define WEBSOCKET_KEY "Sec-WebSocket-Key: "
 #define WEBSOCKET_PROTOCOL "Sec-WebSocket-Protocol: "
 #define WEBSOCKET_ACCEPT "Sec-WebSocket-Accept: "
+#define WEBSOCKET_REQUEST \
+	"GET HTTP/1.1\r\n" \
+	"Connection: Upgrade\r\n" \
+	"Upgrade: websocket\r\n"
 #define WEBSOCKET_RESPONSE \
 	"HTTP/1.1 101 Switching Protocols\r\n" \
-	"Upgrade: websocket\r\n" \
-	"Connection: Upgrade\r\n"
+	"Connection: Upgrade\r\n" \
+	"Upgrade: websocket\r\n"
 
 ssize_t websocket_readrequest(const void *src, size_t len) {
 	const char *end;
@@ -50,8 +54,100 @@ ssize_t websocket_readrequest(const void *src, size_t len) {
 	return (end + 4) - (char *) src;
 }
 
+ssize_t websocket_writerequest(
+		void *dst, size_t size, const unsigned char nonce[static WEBSOCKET_NONCESIZE],
+		const char *uri, const char *fields[], size_t count) {
+	ssize_t off = 0;
+	size_t i;
+
+	if ((off = websocket_writedata(dst, off, size, WEBSOCKET_REQUEST, 4)) < 0)
+		return off;
+
+	if ((off = websocket_writedata(dst, off, size, uri, strlen(uri))) < 0)
+		return off;
+
+	if ((off = websocket_writedata(dst, off, size, WEBSOCKET_REQUEST + 3, sizeof WEBSOCKET_REQUEST - 4)) < 0)
+		return off;
+
+	if ((off = websocket_writedata(dst, off, size, WEBSOCKET_KEY, sizeof WEBSOCKET_KEY - 1)) < 0)
+		return off;
+
+	if (size - off < base64len(WEBSOCKET_NONCESIZE))
+		return -ENOMEM;
+
+	off += base64((char *) dst + off, base64len(WEBSOCKET_NONCESIZE), nonce, WEBSOCKET_NONCESIZE);
+
+	if ((off = websocket_writedata(dst, off, size, "\r\n", 2)) < 0)
+		return off;
+
+	if ((off = websocket_writedata(dst, off, size, WEBSOCKET_VERSION, sizeof WEBSOCKET_VERSION - 1)) < 0)
+		return off;
+
+	if ((off = websocket_writedata(dst, off, size, "13\r\n", 4)) < 0)
+		return off;
+
+	if (fields != NULL)
+		for (i = 0; i < count; ++i) {
+			if ((off = websocket_writedata(dst, off, size, fields[i], strlen(fields[i]))) < 0)
+				return off;
+
+			if ((off = websocket_writedata(dst, off, size, "\r\n", 2)) < 0)
+				return off;
+		}
+
+	if ((off = websocket_writedata(dst, off, size, "\r\n", 2)) < 0)
+		return off;
+
+	return off;
+}
+
+static ssize_t acceptkey(
+		unsigned char h[SHA1_SIZE], void *buf, ssize_t off, size_t size,
+		const char *key, size_t len) {
+	size_t tmp = off;
+
+	if ((off = websocket_writedata(buf, off, size, key, len)) < 0)
+		return off;
+
+	if ((off = websocket_writedata(buf, off, size, WEBSOCKET_GUID, sizeof WEBSOCKET_GUID - 1)) < 0)
+		return off;
+
+	sha1(h, (unsigned char *) buf + tmp, len + sizeof WEBSOCKET_GUID - 1);
+	return tmp;
+}
+
+static ssize_t acceptnonce(
+		unsigned char h[SHA1_SIZE], void *buf, ssize_t off, size_t size,
+		const unsigned char nonce[static WEBSOCKET_NONCESIZE]) {
+	if (size - off < base64len(WEBSOCKET_NONCESIZE))
+		return -ENOMEM;
+
+	base64((char *) buf + off, base64len(WEBSOCKET_NONCESIZE), nonce, WEBSOCKET_NONCESIZE);
+	return acceptkey(h, buf, off, size, (char *) buf + off, base64len(WEBSOCKET_NONCESIZE));
+}
+
+ssize_t websocket_readresponse(
+		const void *src, size_t len, const unsigned char nonce[static WEBSOCKET_NONCESIZE]) {
+	ssize_t off;
+	const char *end = (const char *) src + len, *rp, *ep;
+	unsigned char h[SHA1_SIZE];
+	char buf[64];
+
+	if ((rp = strnstr((char *) src, WEBSOCKET_ACCEPT, end - (char *) src)) == NULL ||
+			(ep = strnstr(rp, "\r\n", end - rp)) == NULL)
+		return -EBADMSG;
+
+	if ((off = acceptnonce(h, buf, 0, sizeof buf, nonce)) < 0)
+		return off;
+
+	if ((end = strnstr((char *) src, "\r\n\r\n", len)) == NULL)
+		return -EBADMSG;
+
+	return (end + 4) - (char *) src;
+}
+
 ssize_t websocket_writeresponse(void *dst, size_t size, const void *src, size_t len) {
-	ssize_t tmp, off = 0;
+	ssize_t off = 0;
 	const char *end = (const char *) src + len, *rp, *ep;
 	unsigned char h[SHA1_SIZE];
 
@@ -83,16 +179,9 @@ ssize_t websocket_writeresponse(void *dst, size_t size, const void *src, size_t 
 		return -EBADMSG;
 
 	rp += sizeof WEBSOCKET_KEY - 1;
-	tmp = off;
 
-	if ((off = websocket_writedata(dst, off, size, rp, ep - rp)) < 0)
+	if ((off = acceptkey(h, dst, off, size, rp, ep - rp)) < 0)
 		return off;
-
-	if ((off = websocket_writedata(dst, off, size, WEBSOCKET_GUID, sizeof WEBSOCKET_GUID - 1)) < 0)
-		return off;
-
-	sha1(h, (unsigned char *) dst + tmp, (ep - rp) + sizeof WEBSOCKET_GUID - 1);
-	off = tmp;
 
 	if ((off = websocket_writedata(dst, off, size, WEBSOCKET_ACCEPT, sizeof WEBSOCKET_ACCEPT - 1)) < 0)
 		return off;
