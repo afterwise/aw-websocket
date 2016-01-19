@@ -23,9 +23,9 @@
 
 #include "aw-websocket.h"
 #include "aw-base64.h"
+#include "aw-fiber.h"
 #include "aw-sha1.h"
 
-#include <errno.h>
 #include <string.h>
 
 #define WEBSOCKET_GUID "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -46,10 +46,10 @@ ssize_t websocket_readrequest(const void *src, size_t len) {
 	const char *end;
 
 	if (strncmp((char *) src, "GET", 3) != 0)
-		return -EBADMSG;
+		return WEBSOCKET_DATA_ERROR;
 
 	if ((end = strnstr((char *) src, "\r\n\r\n", len)) == NULL)
-		return -EBADMSG;
+		return WEBSOCKET_DATA_ERROR;
 
 	return (end + 4) - (char *) src;
 }
@@ -73,7 +73,7 @@ ssize_t websocket_writerequest(
 		return off;
 
 	if (size - off < base64len(WEBSOCKET_NONCESIZE))
-		return -ENOMEM;
+		return WEBSOCKET_NO_BUFFER_SPACE;
 
 	off += base64((char *) dst + off, base64len(WEBSOCKET_NONCESIZE), nonce, WEBSOCKET_NONCESIZE);
 
@@ -120,7 +120,7 @@ static ssize_t acceptnonce(
 		unsigned char h[SHA1_SIZE], void *buf, ssize_t off, size_t size,
 		const unsigned char nonce[static WEBSOCKET_NONCESIZE]) {
 	if (size - off < base64len(WEBSOCKET_NONCESIZE))
-		return -ENOMEM;
+		return WEBSOCKET_NO_BUFFER_SPACE;
 
 	base64((char *) buf + off, base64len(WEBSOCKET_NONCESIZE), nonce, WEBSOCKET_NONCESIZE);
 	return acceptkey(h, buf, off, size, (char *) buf + off, base64len(WEBSOCKET_NONCESIZE));
@@ -135,13 +135,13 @@ ssize_t websocket_readresponse(
 
 	if ((rp = strnstr((char *) src, WEBSOCKET_ACCEPT, end - (char *) src)) == NULL ||
 			(ep = strnstr(rp, "\r\n", end - rp)) == NULL)
-		return -EBADMSG;
+		return WEBSOCKET_DATA_ERROR;
 
 	if ((off = acceptnonce(h, buf, 0, sizeof buf, nonce)) < 0)
 		return off;
 
 	if ((end = strnstr((char *) src, "\r\n\r\n", len)) == NULL)
-		return -EBADMSG;
+		return WEBSOCKET_DATA_ERROR;
 
 	return (end + 4) - (char *) src;
 }
@@ -153,7 +153,7 @@ ssize_t websocket_writeresponse(void *dst, size_t size, const void *src, size_t 
 
 	if ((rp = strnstr((char *) src, WEBSOCKET_VERSION, end - (char *) src)) == NULL ||
 			strncmp(rp + sizeof WEBSOCKET_VERSION - 1, "13\r\n", 4) != 0)
-		return -ENOTSUP;
+		return WEBSOCKET_UNSUPPORTED_VERSION;
 
 	if ((off = websocket_writedata(dst, off, size, WEBSOCKET_RESPONSE, sizeof WEBSOCKET_RESPONSE - 1)) < 0)
 		return off;
@@ -162,7 +162,7 @@ ssize_t websocket_writeresponse(void *dst, size_t size, const void *src, size_t 
 		rp += sizeof WEBSOCKET_PROTOCOL - 1;
 
 		if ((ep = strnstr(rp, "\r\n", end - rp)) == NULL)
-			return -EBADMSG;
+			return WEBSOCKET_DATA_ERROR;
 
 		if ((off = websocket_writedata(dst, off, size, WEBSOCKET_PROTOCOL, sizeof WEBSOCKET_PROTOCOL - 1)) < 0)
 			return off;
@@ -176,7 +176,7 @@ ssize_t websocket_writeresponse(void *dst, size_t size, const void *src, size_t 
 
 	if ((rp = strnstr((char *) src, WEBSOCKET_KEY, end - (char *) src)) == NULL ||
 			(ep = strnstr(rp, "\r\n", end - rp)) == NULL)
-		return -EBADMSG;
+		return WEBSOCKET_DATA_ERROR;
 
 	rp += sizeof WEBSOCKET_KEY - 1;
 
@@ -187,7 +187,7 @@ ssize_t websocket_writeresponse(void *dst, size_t size, const void *src, size_t 
 		return off;
 
 	if (size - off < base64len(sizeof h))
-		return -ENOMEM;
+		return WEBSOCKET_NO_BUFFER_SPACE;
 
 	off += base64((char *) dst + off, base64len(sizeof h), h, sizeof h);
 
@@ -202,7 +202,7 @@ ssize_t websocket_writeframe(void *dst, size_t size, struct websocket_frame *fra
 	unsigned char len[8];
 
 	if (size < sizeof frame->header + 8 + sizeof frame->mask)
-		return -ENOMEM;
+		return WEBSOCKET_NO_BUFFER_SPACE;
 
 	if (frame->length < 126)
 		frame->header[1] |= (unsigned char) frame->length;
@@ -268,7 +268,7 @@ ssize_t websocket_readframe(const void *src, size_t len, struct websocket_frame 
 	return off;
 }
 
-ssize_t websocket_maskdata(void *p, size_t n, struct websocket_frame *frame, size_t off) {
+ssize_t websocket_maskdata(void *p, size_t n, const struct websocket_frame *frame, size_t off) {
 	size_t i;
 
 	if (frame->header[1] & WEBSOCKET_MASK)
@@ -281,7 +281,7 @@ ssize_t websocket_maskdata(void *p, size_t n, struct websocket_frame *frame, siz
 
 ssize_t websocket_readdata(void *dst, size_t len, const void *src, size_t off, size_t size) {
 	if (size - off < len)
-		return -EMSGSIZE;
+		return WEBSOCKET_NO_DATA;
 
 	memcpy(dst, (const unsigned char *) src + off, len);
 	return off += len;
@@ -289,9 +289,123 @@ ssize_t websocket_readdata(void *dst, size_t len, const void *src, size_t off, s
 
 ssize_t websocket_writedata(void *dst, size_t off, size_t size, const void *src, size_t len) {
 	if (size - off < len)
-		return -ENOMEM;
+		return WEBSOCKET_NO_BUFFER_SPACE;
 
 	memcpy((unsigned char *) dst + off, src, len);
 	return off += len;
+}
+
+struct websocket_result websocket_update(
+		struct websocket_state *state, void *dst, size_t size, void *src, size_t len,
+		websocket_callback_t cb, void *udata) {
+	size_t dstoff = 0, srcoff = 0;
+	ssize_t err;
+
+	coroutine_begin(state->co);
+
+        while ((err = websocket_writeresponse(
+			(unsigned char *) dst + dstoff, size - dstoff,
+			(const unsigned char *) src + srcoff, len - srcoff)) < 0)
+		coroutine_yield(state->co, (struct websocket_result) {dstoff, srcoff, err});
+	dstoff += err;
+
+	while ((err = websocket_readrequest((const unsigned char *) src + srcoff, len - srcoff)) < 0)
+		coroutine_yield(state->co, (struct websocket_result) {dstoff, srcoff, err});
+	srcoff += err;
+
+	for (int loop = 1; loop;) {
+		while ((err = websocket_readframe(
+				(const unsigned char *) src + srcoff, len - srcoff, &state->frame)) < 0)
+			coroutine_yield(state->co, (struct websocket_result) {dstoff, srcoff, err});
+		srcoff += err;
+		state->offset = 0;
+
+		switch (state->frame.header[0] & WEBSOCKET_OPCODE) {
+		case WEBSOCKET_CLOSE:
+			while ((err = websocket_writeframe(
+					(unsigned char *) dst + dstoff, size - dstoff, &state->frame)) < 0)
+				coroutine_yield(state->co, (struct websocket_result) {dstoff, srcoff, err});
+			dstoff += err;
+			while (state->frame.length - state->offset > len - srcoff) {
+				state->offset += len - srcoff;
+				srcoff = len;
+				coroutine_yield(
+					state->co, (struct websocket_result) {dstoff, srcoff, WEBSOCKET_NO_DATA});
+			}
+			srcoff += state->frame.length - state->offset;
+			loop = 0;
+			break;
+		case WEBSOCKET_PING:
+			state->frame.header[0] &= ~WEBSOCKET_PING;
+			state->frame.header[0] |= WEBSOCKET_FIN | WEBSOCKET_PONG;
+			while ((err = websocket_writeframe(
+					(unsigned char *) dst + dstoff, size - dstoff, &state->frame)) < 0)
+				coroutine_yield(
+					state->co, (struct websocket_result) {dstoff, srcoff, err});
+			dstoff += err;
+			while (state->frame.length - state->offset > len - srcoff) {
+				memcpy(
+					(unsigned char *) dst + dstoff, (const unsigned char *) src + srcoff,
+					len - srcoff);
+				dstoff += len - srcoff;
+				state->offset += len - srcoff;
+				srcoff = len;
+				coroutine_yield(
+					state->co, (struct websocket_result) {dstoff, srcoff, WEBSOCKET_NO_DATA});
+			}
+			memcpy(
+				(unsigned char *) dst + dstoff, (const unsigned char *) src + srcoff,
+				state->frame.length - state->offset);
+			dstoff += state->frame.length - state->offset;
+			srcoff += state->frame.length - state->offset;
+			break;
+		case WEBSOCKET_PONG:
+			while (state->frame.length - state->offset > len - srcoff) {
+				state->offset += len - srcoff;
+				srcoff = len;
+				coroutine_yield(
+					state->co, (struct websocket_result) {dstoff, srcoff, WEBSOCKET_NO_DATA});
+			}
+			srcoff += state->frame.length - state->offset;
+			break;
+		case WEBSOCKET_CONTINUATION:
+		case WEBSOCKET_TEXT:
+		case WEBSOCKET_BINARY:
+			while (state->frame.length - state->offset > len - srcoff) {
+				websocket_maskdata(
+					(unsigned char *) src + srcoff, len - srcoff, &state->frame, state->offset);
+				if (cb != NULL) {
+					while ((err = cb((state->frame.header[0] & WEBSOCKET_OPCODE),
+							(unsigned char *) dst + dstoff, size - dstoff,
+							(const unsigned char *) src + srcoff, len - srcoff,
+							udata)) < 0)
+						coroutine_yield(
+							state->co, (struct websocket_result) {dstoff, srcoff, err});
+					dstoff += err;
+				}
+				state->offset += len - srcoff;
+				srcoff = len;
+				coroutine_yield(
+					state->co, (struct websocket_result) {dstoff, srcoff, WEBSOCKET_NO_DATA});
+			}
+			websocket_maskdata(
+				(unsigned char *) src + srcoff, state->frame.length - state->offset,
+				&state->frame, state->offset);
+			if (cb != NULL) {
+				while ((err = cb((state->frame.header[0] & WEBSOCKET_OPCODE),
+						(unsigned char *) dst + dstoff, size - dstoff,
+						(const unsigned char *) src + srcoff,
+						state->frame.length - state->offset, udata)) < 0)
+					coroutine_yield(
+						state->co, (struct websocket_result) {dstoff, srcoff, err});
+				dstoff += err;
+			}
+			srcoff += state->frame.length - state->offset;
+			break;
+		}
+	}
+
+	coroutine_end(state->co);
+	return (struct websocket_result) {dstoff, srcoff, 0};
 }
 

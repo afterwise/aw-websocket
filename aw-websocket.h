@@ -26,6 +26,12 @@
 
 #include <sys/types.h>
 
+#if __GNUC__
+# define _websocket_alwaysinline inline __attribute__((always_inline))
+#elif _MSC_VER
+# define _websocket_alwaysinline __forceinline
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,6 +40,9 @@ extern "C" {
 
 /* header[0] */
 #define WEBSOCKET_FIN (0x80)
+#define WEBSOCKET_RSV1 (0x40)
+#define WEBSOCKET_RSV2 (0x20)
+#define WEBSOCKET_RSV3 (0x10)
 #define WEBSOCKET_OPCODE (0x0f)
 
 /* header[1] */
@@ -47,6 +56,16 @@ extern "C" {
 #define WEBSOCKET_CLOSE (0x08)
 #define WEBSOCKET_PING (0x09)
 #define WEBSOCKET_PONG (0x0a)
+
+/* errors */
+enum {
+	WEBSOCKET_NO_DATA = -1,
+	WEBSOCKET_NO_BUFFER_SPACE = -2,
+	WEBSOCKET_UNSUPPORTED_VERSION = -3,
+	WEBSOCKET_DATA_ERROR = -4
+};
+
+/* Low-level nuts and bolts api */
 
 struct websocket_frame {
 	unsigned long long length;
@@ -66,9 +85,35 @@ ssize_t websocket_writeresponse(void *dst, size_t size, const void *src, size_t 
 ssize_t websocket_writeframe(void *dst, size_t size, struct websocket_frame *frame);
 ssize_t websocket_readframe(const void *src, size_t len, struct websocket_frame *frame);
 
-ssize_t websocket_maskdata(void *p, size_t n, struct websocket_frame *frame, size_t off);
+ssize_t websocket_maskdata(void *p, size_t n, const struct websocket_frame *frame, size_t off);
 ssize_t websocket_readdata(void *dst, size_t len, const void *src, size_t off, size_t size);
 ssize_t websocket_writedata(void *dst, size_t off, size_t size, const void *src, size_t len);
+
+/* High-level state machine api */
+
+struct websocket_state {
+	unsigned short co;
+	struct websocket_frame frame;
+	size_t offset;
+};
+
+struct websocket_result {
+	ssize_t dstlen;
+	ssize_t srclen;
+	int error;
+};
+
+typedef ssize_t (*websocket_callback_t)(
+	int op, void *dst, size_t size, const void *src, size_t len, void *udata);
+
+_websocket_alwaysinline
+void websocket_state_init(struct websocket_state *state) {
+	*state = (struct websocket_state) {0};
+}
+
+struct websocket_result websocket_update(
+	struct websocket_state *state, void *dst, size_t size, void *src, size_t len,
+	websocket_callback_t cb, void *udata);
 
 #ifdef __cplusplus
 } /* extern "C" */
