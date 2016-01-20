@@ -89,17 +89,6 @@ ssize_t websocket_maskdata(void *p, size_t n, const struct websocket_frame *fram
 ssize_t websocket_readdata(void *dst, size_t len, const void *src, size_t off, size_t size);
 ssize_t websocket_writedata(void *dst, size_t off, size_t size, const void *src, size_t len);
 
-_websocket_alwaysinline
-ssize_t websocket_writemessage(int op, void *dst, size_t size, const void *src, size_t len) {
-        struct websocket_frame frame = {len, {op}};
-        ssize_t off;
-        if ((off = websocket_writeframe(dst, size, &frame)) < 0)
-                return off;
-        if ((off = websocket_writedata(dst, off, size, src, len)) < 0)
-                return off;
-        return off;
-}
-
 /* High-level state machine api */
 
 struct websocket_state {
@@ -125,6 +114,10 @@ void websocket_state_init(struct websocket_state *state) {
 struct websocket_result websocket_update(
 	struct websocket_state *state, void *dst, size_t size, void *src, size_t len,
 	websocket_callback_t cb, void *udata);
+
+ssize_t websocket_message(
+	unsigned char op, unsigned char mask[4], void *dst, size_t size,
+	const void *src, size_t len);
 
 #ifdef __cplusplus
 } /* extern "C" */

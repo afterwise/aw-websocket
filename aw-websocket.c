@@ -409,3 +409,20 @@ struct websocket_result websocket_update(
 	return (struct websocket_result) {dstoff, srcoff, 0};
 }
 
+ssize_t websocket_message(
+		unsigned char op, unsigned char mask[4], void *dst, size_t size,
+		const void *src, size_t len) {
+	struct websocket_frame frame = {len, {op, (mask != NULL ? WEBSOCKET_MASK : 0)}};
+	ssize_t off1, off2;
+	if ((off1 = websocket_writeframe(dst, size, &frame)) < 0)
+		return off1;
+	if (mask != NULL)
+		if ((off1 = websocket_writedata(dst, off1, size, mask, 4)) < 0)
+			return off1;
+	if ((off2 = websocket_writedata(dst, off1, size, src, len)) < 0)
+		return off2;
+	if (mask != NULL)
+		websocket_maskdata((unsigned char *) dst + off1, off2 - off1, &frame, 0);
+	return off2;
+}
+
