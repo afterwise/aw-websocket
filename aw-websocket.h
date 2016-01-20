@@ -92,9 +92,9 @@ ssize_t websocket_writedata(void *dst, size_t off, size_t size, const void *src,
 /* High-level state machine api */
 
 struct websocket_state {
-	unsigned short co;
-	struct websocket_frame frame;
 	size_t offset;
+	struct websocket_frame frame;
+	unsigned short co;
 };
 
 struct websocket_result {
