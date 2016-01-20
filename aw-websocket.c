@@ -296,8 +296,8 @@ ssize_t websocket_writedata(void *dst, size_t off, size_t size, const void *src,
 }
 
 struct websocket_result websocket_update(
-		struct websocket_state *state, void *dst, size_t size, void *src, size_t len,
-		websocket_callback_t cb, void *udata) {
+		struct websocket_state *state, void *dst, size_t size, const void *src, size_t len,
+		websocket_handler_t handler, void *userdata) {
 	size_t dstoff = 0, srcoff = 0;
 	ssize_t err;
 
@@ -374,11 +374,11 @@ struct websocket_result websocket_update(
 			while (state->frame.length - state->offset > len - srcoff) {
 				websocket_maskdata(
 					(unsigned char *) src + srcoff, len - srcoff, &state->frame, state->offset);
-				if (cb != NULL) {
-					while ((err = cb((state->frame.header[0] & WEBSOCKET_OPCODE),
+				if (handler != NULL) {
+					while ((err = handler((state->frame.header[0] & WEBSOCKET_OPCODE),
 							(unsigned char *) dst + dstoff, size - dstoff,
 							(const unsigned char *) src + srcoff, len - srcoff,
-							udata)) < 0)
+							userdata)) < 0)
 						coroutine_yield(
 							state->co, (struct websocket_result) {dstoff, srcoff, err});
 					dstoff += err;
@@ -391,11 +391,11 @@ struct websocket_result websocket_update(
 			websocket_maskdata(
 				(unsigned char *) src + srcoff, state->frame.length - state->offset,
 				&state->frame, state->offset);
-			if (cb != NULL) {
-				while ((err = cb((state->frame.header[0] & WEBSOCKET_OPCODE),
+			if (handler != NULL) {
+				while ((err = handler((state->frame.header[0] & WEBSOCKET_OPCODE),
 						(unsigned char *) dst + dstoff, size - dstoff,
 						(const unsigned char *) src + srcoff,
-						state->frame.length - state->offset, udata)) < 0)
+						state->frame.length - state->offset, userdata)) < 0)
 					coroutine_yield(
 						state->co, (struct websocket_result) {dstoff, srcoff, err});
 				dstoff += err;

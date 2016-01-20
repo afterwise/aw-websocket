@@ -65,6 +65,12 @@ enum {
 	WEBSOCKET_DATA_ERROR = -4
 };
 
+struct websocket_result {
+	ssize_t dstlen;
+	ssize_t srclen;
+	int error;
+};
+
 /* Low-level nuts and bolts api */
 
 struct websocket_frame {
@@ -91,20 +97,14 @@ ssize_t websocket_writedata(void *dst, size_t off, size_t size, const void *src,
 
 /* High-level state machine api */
 
+typedef ssize_t (*websocket_handler_t)(
+	int op, void *dst, size_t size, const void *src, size_t len, void *userdata);
+
 struct websocket_state {
 	size_t offset;
 	struct websocket_frame frame;
 	unsigned short co;
 };
-
-struct websocket_result {
-	ssize_t dstlen;
-	ssize_t srclen;
-	int error;
-};
-
-typedef ssize_t (*websocket_callback_t)(
-	int op, void *dst, size_t size, const void *src, size_t len, void *udata);
 
 _websocket_alwaysinline
 void websocket_state_init(struct websocket_state *state) {
@@ -112,8 +112,8 @@ void websocket_state_init(struct websocket_state *state) {
 }
 
 struct websocket_result websocket_update(
-	struct websocket_state *state, void *dst, size_t size, void *src, size_t len,
-	websocket_callback_t cb, void *udata);
+	struct websocket_state *state, void *dst, size_t size, const void *src, size_t len,
+	websocket_handler_t handler, void *userdata);
 
 ssize_t websocket_message(
 	unsigned char op, unsigned char mask[4], void *dst, size_t size,
