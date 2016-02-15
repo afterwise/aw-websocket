@@ -146,6 +146,7 @@ static ssize_t process_data(struct client *client, char *p, size_t n) {
 			printf("[%d] -> data:\n", getpid());
 			debug_hex(tbuf, tn);
 			tn = 0;
+			socket_shutdown(client->sd, SOCKET_RECV); /* XXX: test over */
 		} else if (client->state == CLOSE) {
 			tbuf[tn] = 0;
 			printf("[%d] -> close:\n", getpid());
@@ -218,6 +219,7 @@ static ssize_t read_socket(ssize_t fd, void *p, size_t n, void *cookie) {
 
 int main(int argc, char *argv[]) {
 	struct client client;
+	struct endpoint ep;
 	ssize_t err;
 	char buf[2048];
 
@@ -227,7 +229,7 @@ int main(int argc, char *argv[]) {
 	memset(&client, 0, sizeof client);
 	socket_init();
 
-	if ((client.sd = socket_connect("echo.websocket.org", "http", SOCKET_STREAM)) < 0)
+	if ((client.sd = socket_connect("echo.websocket.org", "http", &ep, SOCKET_STREAM)) < 0)
 		return fprintf(stderr, "connect failed\n"), 1;
 
 	if (randombytes(client.nonce, sizeof client.nonce) < 0)
