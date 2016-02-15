@@ -1,4 +1,17 @@
 
+#ifndef _nofeatures
+# if _WIN32
+#  define WIN32_LEAN_AND_MEAN 1
+# elif __linux__
+#  define _BSD_SOURCE 1
+#  define _DEFAULT_SOURCE 1
+#  define _POSIX_C_SOURCE 200809L
+#  define _SVID_SOURCE 1
+# elif __APPLE__
+#  define _DARWIN_C_SOURCE 1
+# endif
+#endif /* _nofeatures */
+
 #include "aw-debug.h"
 #include "aw-socket.h"
 #include "client.h"
